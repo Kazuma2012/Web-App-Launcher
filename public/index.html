@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Web App Launcher</title>
+<style>
+body {
+  font-family: sans-serif;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+}
+#app-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-top: 20px;
+}
+.app-item {
+  width: 100px;
+  text-align: center;
+  border: 1px solid #ccc;
+  padding: 10px;
+  border-radius: 8px;
+  position: relative;
+  cursor: pointer;
+}
+.app-item img {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+.app-item button {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: red;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+input[type="text"], input[type="url"], input[type="file"] {
+  margin-bottom: 5px;
+  display: block;
+  width: 100%;
+  padding: 5px;
+}
+button {
+  padding: 5px 10px;
+  cursor: pointer;
+}
+</style>
+</head>
+<body>
+  <h1>Web App Launcher</h1>
+
+  <input type="text" id="search" placeholder="検索..." />
+
+  <div id="app-grid"></div>
+
+  <h2>アプリ追加</h2>
+  <form id="add-app-form">
+    <input type="text" name="name" placeholder="アプリ名" required />
+    <input type="url" name="url" placeholder="URL" required />
+    <input type="file" name="icon" accept="image/*" required />
+    <button type="submit">追加</button>
+  </form>
+
+<script>
+const appGrid = document.getElementById('app-grid');
+const searchInput = document.getElementById('search');
+const form = document.getElementById('add-app-form');
+
+let apps = [];
+
+// APIからアプリ取得
+async function fetchApps() {
+  const res = await fetch('/apps');
+  apps = await res.json();
+  renderApps();
+}
+
+// アプリ表示
+function renderApps() {
+  const keyword = searchInput.value.toLowerCase();
+  appGrid.innerHTML = '';
+  apps
+    .filter(a => a.name.toLowerCase().includes(keyword))
+    .forEach(a => {
+      const div = document.createElement('div');
+      div.className = 'app-item';
+      div.innerHTML = `
+        <img src="${a.icon}" alt="${a.name}" />
+        <div>${a.name}</div>
+        <button onclick="deleteApp(${a.id})">×</button>
+      `;
+      div.onclick = (e) => {
+        if(e.target.tagName !== 'BUTTON') window.open(a.url, '_blank');
+      }
+      appGrid.appendChild(div);
+    });
+}
+
+// アプリ削除
+async function deleteApp(id) {
+  await fetch(`/apps/${id}`, { method: 'DELETE' });
+  fetchApps();
+}
+
+// アプリ追加
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const formData = new FormData(form);
+  await fetch('/apps', { method: 'POST', body: formData });
+  form.reset();
+  fetchApps();
+});
+
+// 検索
+searchInput.addEventListener('input', renderApps);
+
+fetchApps();
+</script>
+</body>
+</html>
