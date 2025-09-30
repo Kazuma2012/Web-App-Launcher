@@ -1,71 +1,88 @@
 const express = require('express');
-const fs = require('fs');
 const multer = require('multer');
 const cors = require('cors');
+const fetch = require('node-fetch');
 const path = require('path');
+const fs = require('fs');
 const app = express();
-
 const PORT = process.env.PORT || 3000;
 
-// Render 永続ディスクのマウント先を指定
-// /data に Persistent Disk をマウントしている想定
-const DATA_DIR = '/data';
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+// ===== JSONBin 設定 =====
+const JSONBIN_API_KEY = '$2a$10$6/PlhrS0i2Zrk0zdUD2gDOD5I6ubsQb4Ev7Gih6eKukhn71LnZLy.';
+const JSONBIN_ID = '68db975dae596e708f00e22f';
+const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_ID}`;
 
-const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+// ===== アップロード画像保存先（Render 無料プランでは一時保存） =====
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-const APPS_FILE = path.join(DATA_DIR, 'apps.json');
-if (!fs.existsSync(APPS_FILE)) fs.writeFileSync(APPS_FILE, '[]');
-
-// ミドルウェア
+// ===== ミドルウェア =====
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(UPLOAD_DIR));
 app.use(express.static('public'));
 
-// multer 設定（アップロード処理）
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
 });
 const upload = multer({ storage });
 
-// アプリ一覧取得
-app.get('/apps', (req, res) => {
+// ===== JSONBin から取得 =====
+async function loadApps() {
+  const res = await fetch(JSONBIN_URL, {
+    headers: { 'X-Master-Key': JSONBIN_API_KEY }
+  });
+  const data = await res.json();
+  return data.record.apps || [];
+}
+
+// ===== JSONBin に保存 =====
+async function saveApps(apps) {
+  await fetch(JSONBIN_URL, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Master-Key': JSONBIN_API_KEY
+    },
+    body: JSON.stringify({ apps })
+  });
+}
+
+// ===== API =====
+app.get('/apps', async (req, res) => {
   try {
-    const apps = JSON.parse(fs.readFileSync(APPS_FILE, 'utf8'));
+    const apps = await loadApps();
     res.json(apps);
   } catch (err) {
-    console.error('Error reading apps.json:', err);
-    res.status(500).json({ error: 'Failed to read apps.json' });
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load apps' });
   }
 });
 
-// アプリ追加
-app.post('/apps', upload.single('icon'), (req, res) => {
+app.post('/apps', upload.single('icon'), async (req, res) => {
   try {
-    const apps = JSON.parse(fs.readFileSync(APPS_FILE, 'utf8'));
+    const apps = await loadApps();
     const { name, url } = req.body;
     const icon = req.file ? '/uploads/' + req.file.filename : '';
-    apps.push({ id: Date.now(), name, url, icon });
-    fs.writeFileSync(APPS_FILE, JSON.stringify(apps, null, 2));
-    res.json({ success: true });
+    const newApp = { id: Date.now(), name, url, icon };
+    apps.push(newApp);
+    await saveApps(apps);
+    res.json(newApp);
   } catch (err) {
-    console.error('Error adding app:', err);
-    res.status(500).json({ error: 'Failed to add app' });
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save app' });
   }
 });
 
-// アプリ削除
-app.delete('/apps/:id', (req, res) => {
+app.delete('/apps/:id', async (req, res) => {
   try {
-    let apps = JSON.parse(fs.readFileSync(APPS_FILE, 'utf8'));
+    let apps = await loadApps();
     apps = apps.filter(a => a.id != req.params.id);
-    fs.writeFileSync(APPS_FILE, JSON.stringify(apps, null, 2));
+    await saveApps(apps);
     res.json({ success: true });
   } catch (err) {
-    console.error('Error deleting app:', err);
+    console.error(err);
     res.status(500).json({ error: 'Failed to delete app' });
   }
 });
